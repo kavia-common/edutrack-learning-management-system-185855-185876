@@ -64,8 +64,10 @@ run_sql_file() {
 apply_migrations() {
   echo "Applying migrations..."
 
-  # Ensure migrations tracking table exists
-  run_sql_file <(cat <<'EOSQL'
+  # Ensure migrations tracking table exists (avoid /dev/fd process substitution)
+  if [ -f "${SCRIPT_DIR}/db_connection.txt" ]; then
+    echo "Ensuring migrations table exists (via db_connection.txt)..."
+    $(cat "${SCRIPT_DIR}/db_connection.txt") <<'EOSQL'
 CREATE DATABASE IF NOT EXISTS myapp;
 USE myapp;
 CREATE TABLE IF NOT EXISTS _migrations (
@@ -75,7 +77,33 @@ CREATE TABLE IF NOT EXISTS _migrations (
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 EOSQL
-) || true
+  else
+    if sudo mysqladmin ping --socket=/var/run/mysqld/mysqld.sock --silent 2>/dev/null; then
+      echo "Ensuring migrations table exists (via socket root)..."
+      sudo mysql --socket=/var/run/mysqld/mysqld.sock <<'EOSQL'
+CREATE DATABASE IF NOT EXISTS myapp;
+USE myapp;
+CREATE TABLE IF NOT EXISTS _migrations (
+  id INT NOT NULL AUTO_INCREMENT,
+  filename VARCHAR(255) NOT NULL UNIQUE,
+  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+EOSQL
+    else
+      echo "Ensuring migrations table exists (via TCP appuser)..."
+      mysql -u "${DB_USER}" -p"${DB_PASSWORD}" -h 127.0.0.1 -P "${DB_PORT}" <<'EOSQL'
+CREATE DATABASE IF NOT EXISTS myapp;
+USE myapp;
+CREATE TABLE IF NOT EXISTS _migrations (
+  id INT NOT NULL AUTO_INCREMENT,
+  filename VARCHAR(255) NOT NULL UNIQUE,
+  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+EOSQL
+    fi
+  fi
 
   local MIGRATIONS_DIR="${SCRIPT_DIR}/migrations"
   mkdir -p "$MIGRATIONS_DIR"
