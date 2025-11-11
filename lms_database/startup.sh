@@ -1,9 +1,15 @@
 #!/bin/bash
+set -euo pipefail
 
 DB_NAME="myapp"
 DB_USER="appuser"
 DB_PASSWORD="dbuser123"
 DB_PORT="5000"
+
+# Resolve script directory to handle relative paths correctly,
+# even when invoked via sudo from other directories.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
 
 echo "Starting MySQL setup..."
 
@@ -16,9 +22,9 @@ run_sql_file() {
   fi
 
   # Prefer db_connection.txt if present
-  if [ -f "db_connection.txt" ]; then
+  if [ -f "${SCRIPT_DIR}/db_connection.txt" ]; then
     echo "Applying $sql_file using db_connection.txt..."
-    $(cat db_connection.txt) < "$sql_file"
+    $(cat "${SCRIPT_DIR}/db_connection.txt") < "$sql_file"
     return $?
   fi
 
@@ -51,14 +57,16 @@ CREATE TABLE IF NOT EXISTS _migrations (
 EOSQL
 ) || true
 
-  local MIGRATIONS_DIR="migrations"
+  local MIGRATIONS_DIR="${SCRIPT_DIR}/migrations"
   mkdir -p "$MIGRATIONS_DIR"
 
   # Iterate through sorted .sql files
   for f in $(ls "$MIGRATIONS_DIR"/*.sql 2>/dev/null | sort); do
-    local base="$(basename "$f")"
+    local base
+    base="$(basename "$f")"
     # Check if already applied
-    local chk=$(mysql -u "${DB_USER}" -p"${DB_PASSWORD}" -h 127.0.0.1 -P "${DB_PORT}" -N -e "SELECT COUNT(*) FROM ${DB_NAME}._migrations WHERE filename='${base}'" 2>/dev/null || echo "0")
+    local chk
+    chk=$(mysql -u "${DB_USER}" -p"${DB_PASSWORD}" -h 127.0.0.1 -P "${DB_PORT}" -N -e "SELECT COUNT(*) FROM ${DB_NAME}._migrations WHERE filename='${base}'" 2>/dev/null || echo "0")
     if [ "$chk" = "1" ]; then
       echo "Skipping already applied migration: $base"
       continue
@@ -79,12 +87,13 @@ EOSQL
 apply_seed() {
   echo "Applying seed data..."
   # Simple check: is there at least the admin user?
-  local exists=$(mysql -u "${DB_USER}" -p"${DB_PASSWORD}" -h 127.0.0.1 -P "${DB_PORT}" -N -e "SELECT COUNT(*) FROM ${DB_NAME}.users WHERE email='admin@example.com'" 2>/dev/null || echo "0")
+  local exists
+  exists=$(mysql -u "${DB_USER}" -p"${DB_PASSWORD}" -h 127.0.0.1 -P "${DB_PORT}" -N -e "SELECT COUNT(*) FROM ${DB_NAME}.users WHERE email='admin@example.com'" 2>/dev/null || echo "0")
   if [ "$exists" != "0" ] && [ "$exists" -gt 0 ] 2>/dev/null; then
     echo "Seed appears to be already applied (admin exists). Skipping."
     return 0
   fi
-  run_sql_file "seed.sql"
+  run_sql_file "${SCRIPT_DIR}/seed.sql"
 }
 
 # Check if MySQL is already running on the specified port
@@ -104,9 +113,9 @@ if sudo mysqladmin ping --socket=/var/run/mysqld/mysqld.sock --silent 2>/dev/nul
     echo ""
     
     # Check if connection info file exists
-    if [ -f "db_connection.txt" ]; then
+    if [ -f "${SCRIPT_DIR}/db_connection.txt" ]; then
         echo "To connect to the database, use:"
-        echo "$(cat db_connection.txt)"
+        echo "$(cat "${SCRIPT_DIR}/db_connection.txt")"
     else
         echo "To connect to the database, use:"
         echo "mysql -u root -p${DB_PASSWORD} -h localhost -P ${DB_PORT} ${DB_NAME}"
@@ -197,11 +206,11 @@ FLUSH PRIVILEGES;
 EOF
 
 # Save connection command to a file
-echo "mysql -u ${DB_USER} -p${DB_PASSWORD} -h localhost -P ${DB_PORT} ${DB_NAME}" > db_connection.txt
+echo "mysql -u ${DB_USER} -p${DB_PASSWORD} -h localhost -P ${DB_PORT} ${DB_NAME}" > "${SCRIPT_DIR}/db_connection.txt"
 echo "Connection command saved to db_connection.txt"
 
 # Save environment variables to a file
-cat > db_visualizer/mysql.env << EOF
+cat > "${SCRIPT_DIR}/db_visualizer/mysql.env" << EOF
 export MYSQL_URL="mysql://localhost:${DB_PORT}/${DB_NAME}"
 export MYSQL_USER="${DB_USER}"
 export MYSQL_PASSWORD="${DB_PASSWORD}"
@@ -224,7 +233,7 @@ echo "Environment variables saved to db_visualizer/mysql.env"
 echo "To use with Node.js viewer, run: source db_visualizer/mysql.env"
 
 echo "To connect to the database, use the following command:"
-echo "$(cat db_connection.txt)"
+echo "$(cat "${SCRIPT_DIR}/db_connection.txt")"
 
 echo ""
 echo "MySQL is running in the background."
