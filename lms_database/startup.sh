@@ -301,19 +301,53 @@ export HOST="${VIS_HOST}"
 export PORT="${VIS_PORT}"
 export BROWSER="none"
 
+# Function: wait for TCP port with multiple strategies to improve reliability
+wait_for_tcp_multi() {
+  local host="$1"; local port="$2"; local retries="${3:-60}"; local delay="${4:-2}"
+  for i in $(seq 1 "$retries"); do
+    if (echo >"/dev/tcp/${host}/${port}") >/dev/null 2>&1; then
+      echo "✓ TCP ${host}:${port} is open"
+      return 0
+    fi
+    if command -v nc >/dev/null 2>&1; then
+      if nc -z "${host}" "${port}" >/dev/null 2>&1; then
+        echo "✓ TCP ${host}:${port} is open (nc)"
+        return 0
+      fi
+    fi
+    if command -v curl >/dev/null 2>&1; then
+      if curl -s "http://${host}:${port}/" >/dev/null 2>&1; then
+        echo "✓ HTTP reachable at http://${host}:${port}/"
+        return 0
+      fi
+    fi
+    echo "Waiting for ${host}:${port} to be ready... ($i/${retries})"
+    sleep "$delay"
+  done
+  echo "✗ Timeout waiting for ${host}:${port}"
+  return 1
+}
+
 # Start the visualizer in foreground so the container keeps running
 # If npm is not installed or fails, print error and exit non-zero
 if command -v npm >/dev/null 2>&1; then
   echo "Starting visualizer with: PORT=${PORT} HOST=${HOST} BROWSER=${BROWSER} npm start"
-  # Start npm; add small delay and readiness wait loop
-  ( npm start & VIS_PID=$!
-    # Wait for port 3020 to be ready before exiting subshell
-    wait_for_tcp "127.0.0.1" "${PORT}" 60 2 || {
-      echo "Warning: Visualizer did not open port ${PORT} in time."
-    }
-    # Keep the process in foreground by waiting on child
-    wait ${VIS_PID}
-  )
+  # Start npm; keep it in foreground and concurrently wait for readiness
+  npm start &
+  VIS_PID=$!
+
+  # Readiness check for TCP 3020
+  wait_for_tcp_multi "127.0.0.1" "${PORT}" 90 2 || {
+    echo "Warning: Visualizer did not open port ${PORT} in time."
+  }
+
+  # Forward logs and keep process in foreground
+  wait "${VIS_PID}"
+  EXIT_CODE=$?
+  if [ $EXIT_CODE -ne 0 ]; then
+    echo "Visualizer exited with code ${EXIT_CODE}" >&2
+    exit $EXIT_CODE
+  fi
 else
   echo "Error: npm is not installed in this environment. Cannot start db visualizer." >&2
   exit 1

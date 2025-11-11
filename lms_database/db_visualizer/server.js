@@ -338,9 +338,14 @@ const envInfo = {
   MongoDB: 'MONGODB_URL, MONGODB_DB'
 };
 
-// Bind to HOST/PORT from env with sensible defaults
+/**
+ * PUBLIC_INTERFACE
+ * Start the db_visualizer HTTP server binding to HOST and PORT from environment.
+ * - HOST: Interface to bind to (defaults to '0.0.0.0' to be reachable externally)
+ * - PORT: TCP port to listen on (defaults to 3020 for the LMS db visualizer)
+ */
 const HOST = process.env.HOST || '0.0.0.0';
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || '3020', 10);
 
 app.listen(PORT, HOST, () => {
   const hostForLog = HOST === '0.0.0.0' ? 'localhost' : HOST;

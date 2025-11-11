@@ -4,6 +4,7 @@
   "description": "Simple database viewer for PostgreSQL, MySQL, SQLite, and MongoDB",
   "main": "server.js",
   "scripts": {
+    "//": "start script runs server.js which reads HOST/PORT env and calls app.listen(PORT, HOST)",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
